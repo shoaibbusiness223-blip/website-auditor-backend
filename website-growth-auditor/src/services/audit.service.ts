@@ -63,10 +63,13 @@ export async function runAudit(userId: string, rawUrl: string): Promise<AuditRow
     }
 
     // ── 7. Increment user audit count ────────────────────────────────────────
-    await db.rpc('increment_audit_count', { uid: userId }).catch(() => {
-      // Non-critical — don't fail the audit over this
-      logger.warn('Failed to increment audit count', { userId });
+    const { error: rpcError } = await db.rpc('increment_audit_count', {
+      uid: userId
     });
+    
+    if (rpcError) {
+      logger.warn('Failed to increment audit count', { userId });
+    }
 
     logAudit('audit_completed', { auditId, overall_score: report.overall_score });
     return completed as AuditRow;
