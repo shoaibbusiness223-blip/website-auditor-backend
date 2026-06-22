@@ -8,6 +8,20 @@ import { logger, logAudit } from '../utils/logger';
 export async function runAudit(userId: string, rawUrl: string): Promise<AuditRow> {
   const db = getAdminClient();
 
+// ── 0. Ensure user profile exists in public.users ─────────────────────────
+  // audits.user_id is a FK to public.users (not auth.users).
+  // If the signup trigger failed, this insert will fail with a FK violation.
+  const { error: userCheckError } = await db
+    .from('users')
+    .select('id')
+    .eq('id', userId)
+    .single();
+
+  if (userCheckError) {
+    logger.warn('User row missing in public.users — inserting now', { userId });
+    await db.from('users').insert({ id: userId, email: '' });
+  }
+
   // ── 1. SSRF Guard ─────────────────────────────────────────────────────────
   const guard = await validateAndSanitizeUrl(rawUrl);
   if (!guard.safe) {
@@ -22,9 +36,13 @@ export async function runAudit(userId: string, rawUrl: string): Promise<AuditRow
     .select()
     .single();
 
-  if (insertError || !audit) {
-    throw new Error('Failed to create audit record');
-  }
+    if (insertError || !audit) {
+      logger.error('Failed to create audit record', {
+        supabaseError: insertError?.message,
+        supabaseCode: insertError?.code,
+      });
+      throw new Error(`Failed to create audit record: ${insertError?.message || 'unknown'}`);
+    }
 
   const auditId: string = audit.id;
   logAudit('audit_started', { auditId, userId, url });
