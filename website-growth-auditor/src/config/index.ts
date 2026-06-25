@@ -21,7 +21,7 @@ export const config = {
 
   gemini: {
     apiKey: requireEnv('GEMINI_API_KEY'),
-    model: 'gemini-1.5-flash', // Free tier, fast, generous limits
+    model: 'gemini-2.0-flash', // Free tier, fast, generous limits
     maxTokens: 2048,
   },
 
