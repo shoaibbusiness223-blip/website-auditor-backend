@@ -1,6 +1,6 @@
 import { getAdminClient } from '../db/supabase';
 import { scrapeWebsite } from './scraper.service';
-import { analyzeWithGemini } from './gemini.service';
+import { analyzeWithGroq } from './groq.service';
 import { validateAndSanitizeUrl } from '../utils/ssrfGuard';
 import { AuditRow } from '../types';
 import { logger, logAudit } from '../utils/logger';
@@ -57,7 +57,7 @@ export async function runAudit(userId: string, rawUrl: string): Promise<AuditRow
 
     // ── 5. AI Analysis ──────────────────────────────────────────────────────
     logger.info('Running AI analysis', { auditId });
-    const report = await analyzeWithGemini(scraped);
+    const report = await analyzeWithGroq(scraped);
 
     // ── 6. Save completed report ────────────────────────────────────────────
     const { data: completed, error: updateError } = await db
