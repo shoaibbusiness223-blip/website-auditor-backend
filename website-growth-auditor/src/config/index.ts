@@ -7,6 +7,22 @@ function requireEnv(key: string): string {
   return val;
 }
 
+// ── Parse comma-separated Groq keys ────────────────────────────────────────────
+// Set GROQ_API_KEYS=key1,key2,key3 in your environment (Render/Vercel).
+// Falls back to single GROQ_API_KEY for backward compatibility.
+function getGroqKeys(): string[] {
+  const multiKey = process.env.GROQ_API_KEYS;
+  if (multiKey) {
+    const keys = multiKey.split(',').map(k => k.trim()).filter(Boolean);
+    if (keys.length > 0) return keys;
+  }
+
+  const singleKey = process.env.GROQ_API_KEY;
+  if (singleKey) return [singleKey];
+
+  throw new Error('Missing required environment variable: GROQ_API_KEYS or GROQ_API_KEY');
+}
+
 export const config = {
   env: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '8080', 10),
@@ -19,9 +35,9 @@ export const config = {
     jwtSecret: requireEnv('SUPABASE_JWT_SECRET'),
   },
 
-  gemini: {
-    apiKey: requireEnv('GEMINI_API_KEY'),
-    model: 'gemini-2.0-flash', // Free tier, fast, generous limits
+  groq: {
+    apiKeys: getGroqKeys(),
+    model: 'llama-3.3-70b-versatile',
     maxTokens: 2048,
   },
 
