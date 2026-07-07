@@ -68,6 +68,9 @@ app.get('/health', (_req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/audit', auditRoutes);
 
+import paymentRoutes from './routes/payment.routes';
+app.use('/api/payment', paymentRoutes);
+
 // ─── Error Handlers ───────────────────────────────────────────────────────────
 app.use(notFoundHandler);
 app.use(errorHandler);

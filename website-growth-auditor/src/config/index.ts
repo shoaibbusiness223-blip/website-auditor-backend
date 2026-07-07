@@ -7,19 +7,14 @@ function requireEnv(key: string): string {
   return val;
 }
 
-// ── Parse comma-separated Groq keys ────────────────────────────────────────────
-// Set GROQ_API_KEYS=key1,key2,key3 in your environment (Render/Vercel).
-// Falls back to single GROQ_API_KEY for backward compatibility.
 function getGroqKeys(): string[] {
   const multiKey = process.env.GROQ_API_KEYS;
   if (multiKey) {
     const keys = multiKey.split(',').map(k => k.trim()).filter(Boolean);
     if (keys.length > 0) return keys;
   }
-
   const singleKey = process.env.GROQ_API_KEY;
   if (singleKey) return [singleKey];
-
   throw new Error('Missing required environment variable: GROQ_API_KEYS or GROQ_API_KEY');
 }
 
@@ -39,6 +34,44 @@ export const config = {
     apiKeys: getGroqKeys(),
     model: 'llama-3.3-70b-versatile',
     maxTokens: 2048,
+  },
+
+  // ── Email (Supabase handles OTP email sending via SMTP) ────────────────────
+  // Configure SMTP in Supabase Dashboard → Authentication → Email Templates
+  otp: {
+    expiryMinutes: 10,
+    maxAttempts: 3,
+  },
+
+  // ── Razorpay (Indian users) ────────────────────────────────────────────────
+  razorpay: {
+    keyId: process.env.RAZORPAY_KEY_ID || '',
+    keySecret: process.env.RAZORPAY_KEY_SECRET || '',
+    webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || '',
+  },
+
+  // ── PayPal (International users) ──────────────────────────────────────────
+  paypal: {
+    clientId: process.env.PAYPAL_CLIENT_ID || '',
+    clientSecret: process.env.PAYPAL_CLIENT_SECRET || '',
+    webhookId: process.env.PAYPAL_WEBHOOK_ID || '',
+    baseUrl: process.env.NODE_ENV === 'production'
+      ? 'https://api-m.paypal.com'
+      : 'https://api-m.sandbox.paypal.com',
+  },
+
+  // ── Plan pricing ───────────────────────────────────────────────────────────
+  plans: {
+    pro: {
+      priceUsdCents: 1900,       // $19.00
+      priceInrPaise: 149900,     // ₹1,499
+      auditsPerMonth: 50,
+    },
+    agency: {
+      priceUsdCents: 7900,       // $79.00
+      priceInrPaise: 649900,     // ₹6,499
+      auditsPerMonth: 999,
+    },
   },
 
   security: {

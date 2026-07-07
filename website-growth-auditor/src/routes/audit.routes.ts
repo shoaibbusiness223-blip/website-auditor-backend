@@ -2,16 +2,16 @@ import { Router } from 'express';
 import { handleRunAudit, handleGetAudit, handleListAudits } from '../controllers/audit.controller';
 import { validateAuditRequest } from '../validators';
 import { requireAuth } from '../middleware/auth';
+import { checkAuditLimit, requireFeature } from '../middleware/planEnforcement';
 import rateLimit from 'express-rate-limit';
 import { config } from '../config';
 
 const router = Router();
 
-// Stricter rate limit specifically for audit (expensive operation)
 const auditRateLimit = rateLimit({
-  windowMs: config.security.rateLimitWindowMs, // 15 min
-  max: config.security.auditRateLimitMax,       // 10 audits per window
-  message: { success: false, error: 'Too many audit requests. Please wait before trying again.', code: 'RATE_LIMITED' },
+  windowMs: config.security.rateLimitWindowMs,
+  max: config.security.auditRateLimitMax,
+  message: { success: false, error: 'Too many audit requests. Please wait.', code: 'RATE_LIMITED' },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -19,13 +19,14 @@ const auditRateLimit = rateLimit({
 // All audit routes require authentication
 router.use(requireAuth);
 
-// POST /api/audit
-router.post('/', auditRateLimit, validateAuditRequest, handleRunAudit);
+// POST /api/audit — run new audit
+// checkAuditLimit enforces monthly quota per plan before running
+router.post('/', auditRateLimit, validateAuditRequest, checkAuditLimit, handleRunAudit);
 
-// GET /api/audit
+// GET /api/audit — list audits (Pro+ only for full history)
 router.get('/', handleListAudits);
 
-// GET /api/audit/:id
+// GET /api/audit/:id — get single audit report
 router.get('/:id', handleGetAudit);
 
 export default router;
