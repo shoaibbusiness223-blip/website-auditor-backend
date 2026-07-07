@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { handleRunAudit, handleGetAudit, handleListAudits } from '../controllers/audit.controller';
 import { validateAuditRequest } from '../validators';
 import { requireAuth } from '../middleware/auth';
-import { checkAuditLimit, requireFeature } from '../middleware/planEnforcement';
+import { checkAuditLimit } from '../middleware/planEnforcement';
 import rateLimit from 'express-rate-limit';
 import { config } from '../config';
 

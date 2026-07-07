@@ -122,7 +122,7 @@ export async function handleVerify2FA(req: Request, res: Response): Promise<void
 
     // Generate a fresh session for the user
     const db = getAdminClient();
-    const { data: userRow } = await db.from('users').select('email').eq('id', user_id).single();
+    
 
     // Return the admin-generated session link
     const { data: linkData } = await db.auth.admin.getUserById(user_id);
