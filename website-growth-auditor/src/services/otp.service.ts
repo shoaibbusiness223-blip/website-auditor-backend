@@ -6,14 +6,12 @@ import { logger } from '../utils/logger';
 // ─────────────────────────────────────────────────────────────────────────────
 // OTP Service
 // - Generates a 6-digit OTP, hashes it, stores in otp_codes table
-// - Email delivery is handled by Supabase Auth email templates (SMTP)
-//   OR you can plug in any email provider (Resend, SendGrid, etc.)
+// - Sends the email directly via Resend API
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type OtpType = 'email_verification' | 'login_2fa';
 
 function generateOtp(): string {
-  // Cryptographically secure 6-digit code
   const bytes = crypto.randomBytes(3);
   const num = parseInt(bytes.toString('hex'), 16) % 1000000;
   return num.toString().padStart(6, '0');
@@ -55,34 +53,47 @@ export async function createAndSendOtp(
     throw new Error('Failed to generate OTP');
   }
 
-  // ── Send email via Supabase Auth (uses your configured SMTP) ──────────────
-  // Supabase doesn't have a direct "send custom email" API on the admin client,
-  // so we use their OTP sign-in flow to trigger the email, OR send via a
-  // transactional email provider. Here we use Supabase's built-in OTP:
+  // ── Send email directly via Resend API ─────────────────────────────────────
+  const subject = type === 'email_verification'
+    ? 'Verify your GrowthAuditor account'
+    : 'Your GrowthAuditor login code';
 
-  const { error: emailError } = await db.auth.admin.generateLink({
-    type: 'magiclink',
-    email,
-    options: {
-      data: {
-        otp_code: code,       // embed our code in the link metadata
-        otp_type: type,
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
       },
-    },
-  });
-
-  if (emailError) {
-    // Fallback: log the OTP for development, don't throw in prod
-    // In production wire up Resend/SendGrid here instead
-    logger.warn('Supabase email send failed — using console fallback', {
-      userId,
-      type,
-      // Only log OTP in development!
-      ...(config.isProd ? {} : { otp: code }),
+      body: JSON.stringify({
+        from: 'GrowthAuditor <onboarding@resend.dev>',
+        to: [email],
+        subject,
+        html: `
+          <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+            <h2 style="color: #1e293b;">${subject}</h2>
+            <p style="color: #475569;">Enter this code to continue:</p>
+            <div style="font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #4f46e5; margin: 20px 0;">
+              ${code}
+            </div>
+            <p style="color: #94a3b8; font-size: 13px;">This code expires in ${config.otp.expiryMinutes} minutes.</p>
+          </div>
+        `,
+      }),
     });
 
+    if (!response.ok) {
+      const errBody = await response.text();
+      logger.error('Resend email send failed', { status: response.status, body: errBody, email });
+
+      if (config.isProd) {
+        throw new Error('Failed to send verification email. Please try again.');
+      }
+    }
+  } catch (err) {
+    logger.error('Resend request failed', { error: (err as Error).message, email });
     if (config.isProd) {
-      throw new Error('Failed to send OTP email. Please try again.');
+      throw new Error('Failed to send verification email. Please try again.');
     }
   }
 
