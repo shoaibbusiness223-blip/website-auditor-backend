@@ -2,27 +2,20 @@ import { Request, Response } from 'express';
 import { getAnonClient, getAdminClient } from '../db/supabase';
 import { createAndSendOtp, verifyOtp, checkOtpRequired } from '../services/otp.service';
 import { sendSuccess, sendError } from '../utils/response';
-import { logError } from '../utils/logger';
+import { logError, logger } from '../utils/logger';
 
 // ── POST /api/auth/signup ─────────────────────────────────────────────────────
 export async function handleSignup(req: Request, res: Response): Promise<void> {
   try {
     const { email, password, full_name } = req.body as {
-      email: string;
-      password: string;
-      full_name?: string;
+      email: string; password: string; full_name?: string;
     };
 
     const supabase = getAnonClient();
-
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        data: {
-          full_name,
-        },
-      },
+      options: { data: { full_name } },
     });
 
     if (error || !data.user) {
@@ -30,40 +23,26 @@ export async function handleSignup(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    await createAndSendOtp(
-      data.user.id,
-      email,
-      'email_verification'
-    );
+    // Signup succeeds regardless of whether the OTP email sends.
+    // Fire-and-forget the OTP — never let email issues break account creation.
+    createAndSendOtp(data.user.id, email, 'email_verification').catch((otpErr) => {
+      logger.error('OTP send failed after signup (non-blocking)', {
+        error: otpErr instanceof Error ? otpErr.message : String(otpErr),
+        userId: data.user!.id,
+      });
+    });
 
-    sendSuccess(
-      res,
-      {
-        user: {
-          id: data.user.id,
-          email: data.user.email,
-        },
-        session: data.session,
-        requiresEmailVerification: true,
-      },
-      201,
-      'Account created. Check your email for a 6-digit verification code.'
-    );
+    sendSuccess(res, {
+      user: { id: data.user.id, email: data.user.email },
+      session: data.session,
+      requiresEmailVerification: true,
+    }, 201, 'Account created. Check your email for a 6-digit verification code.');
   } catch (err) {
-    const message =
-      err instanceof Error
-        ? err.message
-        : 'Signup failed. Please try again.';
-
-    logError(
-      err instanceof Error ? err : new Error(String(err)),
-      { handler: 'handleSignup' }
-    );
-
+    const message = err instanceof Error && err.message ? err.message : 'Signup failed. Please try again.';
+    logError(err instanceof Error ? err : new Error(String(err)), { handler: 'handleSignup' });
     sendError(res, message, 400, 'SIGNUP_ERROR');
   }
 }
-
 // ── POST /api/auth/verify-email ───────────────────────────────────────────────
 export async function handleVerifyEmail(
   req: Request,
