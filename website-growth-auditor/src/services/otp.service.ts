@@ -54,11 +54,9 @@ export async function createAndSendOtp(
   }
 
   // ── Send email directly via Resend API ─────────────────────────────────────
-  const subject = type === 'email_verification'
-    ? 'Verify your GrowthAuditor account'
-    : 'Your GrowthAuditor login code';
+  const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-  try {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -80,8 +78,10 @@ export async function createAndSendOtp(
           </div>
         `,
       }),
+      signal: controller.signal,
     });
 
+    clearTimeout(timeoutId);
     if (!response.ok) {
       const errBody = await response.text();
       logger.error('Resend email send failed', { status: response.status, body: errBody, email });
