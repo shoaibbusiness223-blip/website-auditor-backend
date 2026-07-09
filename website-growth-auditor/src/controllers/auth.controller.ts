@@ -32,10 +32,16 @@ export async function handleSignup(req: Request, res: Response): Promise<void> {
       requiresEmailVerification: true,
     }, 201, 'Account created. Check your email for a 6-digit verification code.');
   } catch (err) {
-    logError(err as Error, { handler: 'handleSignup' });
-    sendError(res, (err as Error).message, 400, 'SIGNUP_ERROR');
+    const message =
+      err instanceof Error && err.message
+        ? err.message
+        : typeof err === 'string'
+        ? err
+        : 'Signup failed. Please try again.';
+
+    logError(err instanceof Error ? err : new Error(JSON.stringify(err)), { handler: 'handleSignup' });
+    sendError(res, message, 400, 'SIGNUP_ERROR');
   }
-}
 
 // ── POST /api/auth/verify-email ───────────────────────────────────────────────
 export async function handleVerifyEmail(req: Request, res: Response): Promise<void> {
@@ -202,3 +208,4 @@ export async function handleMe(req: Request, res: Response): Promise<void> {
     sendError(res, 'Failed to fetch user', 500);
   }
 }
+ 

@@ -91,7 +91,12 @@ export async function createAndSendOtp(
       }
     }
   } catch (err) {
-    logger.error('Resend request failed', { error: (err as Error).message, email });
+    logger.error('Resend request failed', {
+      errorMessage: err instanceof Error ? err.message : 'non-error-thrown',
+      errorName: err instanceof Error ? err.name : typeof err,
+      errorRaw: JSON.stringify(err),
+      email,
+    });
     if (config.isProd) {
       throw new Error('Failed to send verification email. Please try again.');
     }
