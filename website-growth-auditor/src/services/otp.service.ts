@@ -22,16 +22,30 @@ function hashOtp(code: string): string {
   return crypto.createHash('sha256').update(code).digest('hex');
 }
 
-export async function createAndSendOtp(
-  userId: string,
-  email: string,
-  type: OtpType
-): Promise<void> {
-  const db = getAdminClient();
   const code = generateOtp();
   const hashedCode = hashOtp(code);
   const expiresAt = new Date(Date.now() + config.otp.expiryMinutes * 60 * 1000).toISOString();
-
+  export async function createAndSendOtp(
+    userId: string,
+    email: string,
+    type: OtpType
+  ): Promise<void> {
+    const db = getAdminClient();
+  
+    // Ensure the public.users row exists before inserting into otp_codes
+    // (FK constraint) — the signup trigger sometimes hasn't committed yet.
+    const { error: userCheckError } = await db
+      .from('users')
+      .select('id')
+      .eq('id', userId)
+      .single();
+  
+    if (userCheckError) {
+      logger.warn('User row missing in public.users — creating it now', { userId, email });
+      await db.from('users').insert({ id: userId, email });
+    }
+  
+    const code = generateOtp();
   // Invalidate any existing unused OTPs of same type for this user
   await db
     .from('otp_codes')
