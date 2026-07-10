@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import nodemailer from 'nodemailer';
 import { getAdminClient } from '../db/supabase';
 import { config } from '../config';
 import { logger } from '../utils/logger';
@@ -6,7 +7,7 @@ import { logger } from '../utils/logger';
 // ─────────────────────────────────────────────────────────────────────────────
 // OTP Service
 // - Generates a 6-digit OTP, hashes it, stores in otp_codes table
-// - Sends the email directly via Resend API
+// - Sends the email via Gmail SMTP (nodemailer)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type OtpType = 'email_verification' | 'login_2fa';
@@ -53,56 +54,47 @@ export async function createAndSendOtp(
     throw new Error('Failed to generate OTP');
   }
 
-  // ── Send email directly via Resend API ─────────────────────────────────────
+  // ── Send email via Gmail SMTP ────────────────────────────────────────────
   const subject = type === 'email_verification'
     ? 'Verify your GrowthAuditor account'
     : 'Your GrowthAuditor login code';
 
   try {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_APP_PASSWORD,
       },
-      body: JSON.stringify({
-        from: 'GrowthAuditor <onboarding@resend.dev>',
-        to: [email],
-        subject,
-        html: `
-          <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
-            <h2 style="color: #1e293b;">${subject}</h2>
-            <p style="color: #475569;">Enter this code to continue:</p>
-            <div style="font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #4f46e5; margin: 20px 0;">
-              ${code}
-            </div>
-            <p style="color: #94a3b8; font-size: 13px;">This code expires in ${config.otp.expiryMinutes} minutes.</p>
+    });
+
+    await transporter.sendMail({
+      from: `"GrowthAuditor" <${process.env.GMAIL_USER}>`,
+      to: email,
+      subject,
+      html: `
+        <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+          <h2 style="color: #1e293b;">${subject}</h2>
+          <p style="color: #475569;">Enter this code to continue:</p>
+          <div style="font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #4f46e5; margin: 20px 0;">
+            ${code}
           </div>
-        `,
-      }),
+          <p style="color: #94a3b8; font-size: 13px;">This code expires in ${config.otp.expiryMinutes} minutes.</p>
+        </div>
+      `,
     });
 
-    if (!response.ok) {
-      const errBody = await response.text();
-      logger.error('Resend email send failed', { status: response.status, body: errBody, email });
-
-      if (config.isProd) {
-        throw new Error('Failed to send verification email. Please try again.');
-      }
-    }
+    logger.info('OTP email sent via Gmail', { email, type });
   } catch (err) {
-    logger.error('Resend request failed', {
-      errorMessage: err instanceof Error ? err.message : 'non-error-thrown',
-      errorName: err instanceof Error ? err.name : typeof err,
-      errorRaw: JSON.stringify(err),
+    logger.error('Gmail send failed', {
+      error: err instanceof Error ? err.message : String(err),
       email,
+      type,
     });
-    if (config.isProd) {
-      throw new Error('Failed to send verification email. Please try again.');
-    }
+    // Non-blocking — user can still hit "Resend" on the OTP screen
   }
 
-  logger.info('OTP created and sent', { userId, type, email });
+  logger.info('OTP created', { userId, type, email });
 }
 
 export async function verifyOtp(
@@ -114,7 +106,6 @@ export async function verifyOtp(
   const hashedCode = hashOtp(code);
   const now = new Date().toISOString();
 
-  // Fetch the most recent unused matching OTP
   const { data: otpRow, error } = await db
     .from('otp_codes')
     .select('*')
@@ -128,7 +119,6 @@ export async function verifyOtp(
     .single();
 
   if (error || !otpRow) {
-    // Check if there's an expired or wrong-code entry so we can give a helpful message
     const { data: anyOtp } = await db
       .from('otp_codes')
       .select('expires_at, used')
@@ -150,10 +140,8 @@ export async function verifyOtp(
     return { valid: false, reason: 'Invalid OTP code.' };
   }
 
-  // Mark as used
   await db.from('otp_codes').update({ used: true }).eq('id', otpRow.id);
 
-  // If this is email verification, mark the user as verified
   if (type === 'email_verification') {
     await db.from('users').update({ email_verified: true }).eq('id', userId);
   }
