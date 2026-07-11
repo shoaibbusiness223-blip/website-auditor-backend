@@ -1,14 +1,15 @@
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
-import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { getAdminClient } from '../db/supabase';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// OTP Service
+// OTP Service — final version
 // - Generates a 6-digit OTP, hashes it, stores in otp_codes table
-// - Sends the email via Gmail SMTP (nodemailer)
+// - Sends email via Resend HTTP API (no SMTP, no IPv6 issues)
+// - Self-heals missing public.users row before inserting (FK safety)
+// - Email sending NEVER blocks or fails the OTP creation — it's fire-and-forget
+//   with full error logging, so signup/login always succeeds even if email fails
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type OtpType = 'email_verification' | 'login_2fa';
@@ -23,30 +24,86 @@ function hashOtp(code: string): string {
   return crypto.createHash('sha256').update(code).digest('hex');
 }
 
+async function ensureUserProfileExists(userId: string, email: string): Promise<void> {
+  const db = getAdminClient();
+  const { error } = await db.from('users').select('id').eq('id', userId).single();
+
+  if (error) {
+    logger.warn('User row missing in public.users — creating it now', { userId, email });
+    const { error: insertError } = await db.from('users').insert({ id: userId, email });
+    if (insertError) {
+      logger.error('Failed to create fallback user profile', {
+        error: insertError.message,
+        userId,
+      });
+    }
+  }
+}
+
+async function sendOtpEmail(email: string, code: string, type: OtpType): Promise<void> {
+  const subject = type === 'email_verification'
+    ? 'Verify your GrowthAuditor account'
+    : 'Your GrowthAuditor login code';
+
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    logger.error('RESEND_API_KEY is not set — cannot send OTP email', { email, type });
+    return;
+  }
+
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: 'GrowthAuditor <onboarding@resend.dev>',
+        to: [email],
+        subject,
+        html: `
+          <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+            <h2 style="color: #1e293b;">${subject}</h2>
+            <p style="color: #475569;">Enter this code to continue:</p>
+            <div style="font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #4f46e5; margin: 20px 0;">
+              ${code}
+            </div>
+            <p style="color: #94a3b8; font-size: 13px;">This code expires in ${config.otp.expiryMinutes} minutes.</p>
+          </div>
+        `,
+      }),
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      logger.error('OTP email send failed', { status: response.status, body: errBody, email, type });
+      return;
+    }
+
+    logger.info('OTP email sent successfully', { email, type });
+  } catch (err) {
+    logger.error('OTP email request threw an error', {
+      error: err instanceof Error ? err.message : String(err),
+      email,
+      type,
+    });
+  }
+}
+
+export async function createAndSendOtp(
+  userId: string,
+  email: string,
+  type: OtpType
+): Promise<{ devCode?: string }> {
+  const db = getAdminClient();
+
+  await ensureUserProfileExists(userId, email);
+
   const code = generateOtp();
   const hashedCode = hashOtp(code);
   const expiresAt = new Date(Date.now() + config.otp.expiryMinutes * 60 * 1000).toISOString();
-  export async function createAndSendOtp(
-    userId: string,
-    email: string,
-    type: OtpType
-  ): Promise<void> {
-    const db = getAdminClient();
-  
-    // Ensure the public.users row exists before inserting into otp_codes
-    // (FK constraint) — the signup trigger sometimes hasn't committed yet.
-    const { error: userCheckError } = await db
-      .from('users')
-      .select('id')
-      .eq('id', userId)
-      .single();
-  
-    if (userCheckError) {
-      logger.warn('User row missing in public.users — creating it now', { userId, email });
-      await db.from('users').insert({ id: userId, email });
-    }
-  
-    const code = generateOtp();
+
   // Invalidate any existing unused OTPs of same type for this user
   await db
     .from('otp_codes')
@@ -55,7 +112,6 @@ function hashOtp(code: string): string {
     .eq('type', type)
     .eq('used', false);
 
-  // Store new OTP
   const { error } = await db.from('otp_codes').insert({
     user_id: userId,
     email,
@@ -65,53 +121,20 @@ function hashOtp(code: string): string {
   });
 
   if (error) {
-    logger.error('Failed to store OTP', { error: error.message, userId, type });
-    throw new Error('Failed to generate OTP');
+    logger.error('Failed to store OTP in database', { error: error.message, userId, type });
+    throw new Error('Failed to generate verification code. Please try again.');
   }
 
-  // ── Send email via Gmail SMTP ────────────────────────────────────────────
-  const subject = type === 'email_verification'
-    ? 'Verify your GrowthAuditor account'
-    : 'Your GrowthAuditor login code';
-
-  try {
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
-      auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_APP_PASSWORD,
-      },
-      family: 4, // force IPv4 — Render's IPv6 route to Gmail is broken
-    } as SMTPTransport.Options);
-    await transporter.sendMail({
-      from: `"GrowthAuditor" <${process.env.GMAIL_USER}>`,
-      to: email,
-      subject,
-      html: `
-        <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
-          <h2 style="color: #1e293b;">${subject}</h2>
-          <p style="color: #475569;">Enter this code to continue:</p>
-          <div style="font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #4f46e5; margin: 20px 0;">
-            ${code}
-          </div>
-          <p style="color: #94a3b8; font-size: 13px;">This code expires in ${config.otp.expiryMinutes} minutes.</p>
-        </div>
-      `,
-    });
-
-    logger.info('OTP email sent via Gmail', { email, type });
-  } catch (err) {
-    logger.error('Gmail send failed', {
-      error: err instanceof Error ? err.message : String(err),
-      email,
-      type,
-    });
-    // Non-blocking — user can still hit "Resend" on the OTP screen
-  }
+  // Fire-and-forget — never let email delivery block the OTP flow
+  sendOtpEmail(email, code, type).catch(() => { /* already logged inside */ });
 
   logger.info('OTP created', { userId, type, email });
+
+  // In development, return the code directly so you can test without email working
+  if (!config.isProd) {
+    return { devCode: code };
+  }
+  return {};
 }
 
 export async function verifyOtp(
@@ -146,15 +169,15 @@ export async function verifyOtp(
       .single();
 
     if (!anyOtp) {
-      return { valid: false, reason: 'No OTP found. Please request a new one.' };
+      return { valid: false, reason: 'No verification code found. Please request a new one.' };
     }
     if (anyOtp.used) {
-      return { valid: false, reason: 'This OTP has already been used.' };
+      return { valid: false, reason: 'This code has already been used.' };
     }
     if (new Date(anyOtp.expires_at) < new Date()) {
-      return { valid: false, reason: 'OTP has expired. Please request a new one.' };
+      return { valid: false, reason: 'Code has expired. Please request a new one.' };
     }
-    return { valid: false, reason: 'Invalid OTP code.' };
+    return { valid: false, reason: 'Invalid code. Please check and try again.' };
   }
 
   await db.from('otp_codes').update({ used: true }).eq('id', otpRow.id);
