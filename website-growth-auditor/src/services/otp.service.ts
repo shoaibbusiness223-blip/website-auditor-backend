@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
+import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { getAdminClient } from '../db/supabase';
 import { config } from '../config';
 import { logger } from '../utils/logger';
@@ -75,13 +76,15 @@ function hashOtp(code: string): string {
 
   try {
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
       auth: {
         user: process.env.GMAIL_USER,
         pass: process.env.GMAIL_APP_PASSWORD,
       },
-    });
-
+      family: 4, // force IPv4 — Render's IPv6 route to Gmail is broken
+    } as SMTPTransport.Options);
     await transporter.sendMail({
       from: `"GrowthAuditor" <${process.env.GMAIL_USER}>`,
       to: email,
