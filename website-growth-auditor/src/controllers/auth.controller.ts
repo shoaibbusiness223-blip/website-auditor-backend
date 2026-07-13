@@ -19,7 +19,19 @@ export async function handleSignup(req: Request, res: Response): Promise<void> {
     });
 
     if (error || !data.user) {
-      sendError(res, error?.message || 'Signup failed', 400, 'SIGNUP_ERROR');
+      logger.error('Supabase signup returned an error', {
+        rawError: JSON.stringify(error),
+        errorMessage: error?.message,
+        errorName: error?.name,
+        errorStatus: error?.status,
+      });
+
+      const message =
+        typeof error?.message === 'string' && error.message
+          ? error.message
+          : 'Signup failed. Please try again.';
+
+      sendError(res, message, 400, 'SIGNUP_ERROR');
       return;
     }
 
