@@ -11,7 +11,8 @@ import { getAnonClient } from '../db/supabase';
  * Sends a 6-digit OTP code to the given email using Supabase's built-in mailer.
  * shouldCreateUser: false — the user must already exist (created via signUp first).
  */
-export async function sendOtp(email: string): Promise<void> {
+
+ export async function sendOtp(email: string): Promise<void> {
   const supabase = getAnonClient();
   const { error } = await supabase.auth.signInWithOtp({
     email,
@@ -19,7 +20,15 @@ export async function sendOtp(email: string): Promise<void> {
   });
 
   if (error) {
-    throw new Error(error.message || 'Failed to send verification code');
+    // Log every possible detail so we can see Supabase's real response
+    console.error('signInWithOtp raw error:', {
+      message: error.message,
+      name: error.name,
+      status: error.status,
+      code: (error as { code?: string }).code,
+      full: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+    });
+    throw new Error(error.message || `Supabase OTP send failed (status ${error.status})`);
   }
 }
 
