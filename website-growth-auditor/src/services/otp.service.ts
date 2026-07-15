@@ -12,7 +12,7 @@ import { getAnonClient } from '../db/supabase';
  * shouldCreateUser: false — the user must already exist (created via signUp first).
  */
 
- export async function sendOtp(email: string): Promise<void> {
+export async function sendOtp(email: string): Promise<void> {
   const supabase = getAnonClient();
   const { error } = await supabase.auth.signInWithOtp({
     email,
