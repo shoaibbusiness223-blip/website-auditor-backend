@@ -23,8 +23,6 @@ function validate(req: Request, res: Response, next: NextFunction): void {
   next();
 }
 
-// ── Public routes ──────────────────────────────────────────────────────────────
-
 router.post('/signup', validateSignup, handleSignup);
 router.post('/login', validateLogin, handleLogin);
 
@@ -41,8 +39,6 @@ router.post('/resend-otp',
   [body('email').isEmail().withMessage('Valid email required'), validate],
   handleResendOtp
 );
-
-// ── Protected routes ───────────────────────────────────────────────────────────
 
 router.get('/me', requireAuth, handleMe);
 

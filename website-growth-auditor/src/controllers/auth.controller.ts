@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { getAnonClient, getAdminClient } from '../db/supabase';
-import { sendOtp, verifyOtpCode } from '../services/otp.service';
+import { createAndSendOtp, verifyOtpCode } from '../services/otp.service';
 import { sendSuccess, sendError } from '../utils/response';
 import { logError } from '../utils/logger';
 
@@ -23,9 +23,8 @@ export async function handleSignup(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // Send OTP via Supabase's own mailer — no custom email code needed.
-    // Non-blocking: if this fails, the user can still hit "resend" later.
-    sendOtp(email).catch((otpErr) => {
+    // Fire-and-forget — signup succeeds regardless of email delivery
+    createAndSendOtp(data.user.id, email, 'email_verification').catch((otpErr) => {
       logError(otpErr instanceof Error ? otpErr : new Error(String(otpErr)), {
         handler: 'handleSignup:sendOtp',
         email,
@@ -44,26 +43,41 @@ export async function handleSignup(req: Request, res: Response): Promise<void> {
 }
 
 // ── POST /api/auth/verify-email ───────────────────────────────────────────────
-// Body: { email, code } — verifies OTP and returns a full session
+// Body: { email, code }. Marks email verified — does NOT return a session.
+// Frontend redirects to /login afterward.
 export async function handleVerifyEmail(req: Request, res: Response): Promise<void> {
   try {
     const { email, code } = req.body as { email: string; code: string };
 
-    const result = await verifyOtpCode(email, code);
+    const result = await verifyOtpCode(email, code, 'email_verification');
 
-    sendSuccess(res, result, 200, 'Email verified successfully.');
+    if (!result.valid) {
+      sendError(res, result.reason || 'Invalid code', 400, 'INVALID_OTP');
+      return;
+    }
+
+    sendSuccess(res, { verified: true }, 200, 'Email verified! Please log in.');
   } catch (err) {
     logError(err instanceof Error ? err : new Error(String(err)), { handler: 'handleVerifyEmail' });
-    sendError(res, err instanceof Error ? err.message : 'Verification failed', 400, 'INVALID_OTP');
+    sendError(res, 'Verification failed', 500);
   }
 }
 
 // ── POST /api/auth/resend-otp ─────────────────────────────────────────────────
+// Body: { email }. Looks up the pending user by email to resend.
 export async function handleResendOtp(req: Request, res: Response): Promise<void> {
   try {
     const { email } = req.body as { email: string };
 
-    await sendOtp(email);
+    const db = getAdminClient();
+    const { data: userRow } = await db.from('users').select('id').eq('email', email).single();
+
+    if (!userRow) {
+      sendError(res, 'No account found for this email', 404, 'USER_NOT_FOUND');
+      return;
+    }
+
+    await createAndSendOtp(userRow.id, email, 'email_verification');
     sendSuccess(res, { sent: true }, 200, 'Code sent. Check your email.');
   } catch (err) {
     logError(err instanceof Error ? err : new Error(String(err)), { handler: 'handleResendOtp' });
@@ -104,7 +118,7 @@ export async function handleMe(req: Request, res: Response): Promise<void> {
     const db = getAdminClient();
     const { data } = await db
       .from('users')
-      .select('id, email, full_name, plan, plan_expires_at, audit_count_month, created_at')
+      .select('id, email, full_name, plan, plan_expires_at, audit_count_month, email_verified, created_at')
       .eq('id', req.user!.id)
       .single();
 

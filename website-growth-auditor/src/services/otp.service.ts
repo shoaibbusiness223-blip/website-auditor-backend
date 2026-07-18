@@ -1,65 +1,185 @@
-import { getAnonClient } from '../db/supabase';
+import crypto from 'crypto';
+import { getAdminClient } from '../db/supabase';
+import { config } from '../config';
+import { logger } from '../utils/logger';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// OTP Service — Supabase native
-// Uses Supabase Auth's built-in email OTP. No custom generation, hashing,
-// storage, or email sending — Supabase handles all of it internally.
-// This is the simplest possible reliable approach: zero external dependencies.
+// OTP Service — decisive final version
+// - Custom-generated code, sent via Resend HTTP API directly (bypasses
+//   Supabase's signInWithOtp entirely, which has been intermittently
+//   returning 504 gateway timeouts).
+// - Verification does NOT try to mint a Supabase session. It just marks
+//   the user's email as verified. The user then logs in normally via
+//   signInWithPassword, which has been confirmed working throughout.
+// - Looked up by email (not user_id) to match the simplified frontend contract.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Sends a 6-digit OTP code to the given email using Supabase's built-in mailer.
- * shouldCreateUser: false — the user must already exist (created via signUp first).
- */
+export type OtpType = 'email_verification' | 'login_2fa';
 
-export async function sendOtp(email: string): Promise<void> {
-  const supabase = getAnonClient();
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: { shouldCreateUser: false },
-  });
+function generateOtp(): string {
+  const bytes = crypto.randomBytes(3);
+  const num = parseInt(bytes.toString('hex'), 16) % 1000000;
+  return num.toString().padStart(6, '0');
+}
+
+function hashOtp(code: string): string {
+  return crypto.createHash('sha256').update(code).digest('hex');
+}
+
+async function ensureUserProfileExists(userId: string, email: string): Promise<void> {
+  const db = getAdminClient();
+  const { error } = await db.from('users').select('id').eq('id', userId).single();
 
   if (error) {
-    // Log every possible detail so we can see Supabase's real response
-    console.error('signInWithOtp raw error:', {
-      message: error.message,
-      name: error.name,
-      status: error.status,
-      code: (error as { code?: string }).code,
-      full: JSON.stringify(error, Object.getOwnPropertyNames(error)),
-    });
-    throw new Error(error.message || `Supabase OTP send failed (status ${error.status})`);
+    logger.warn('User row missing in public.users — creating it now', { userId, email });
+    const { error: insertError } = await db.from('users').insert({ id: userId, email });
+    if (insertError) {
+      logger.error('Failed to create fallback user profile', { error: insertError.message, userId });
+    }
   }
 }
 
+async function sendOtpEmail(email: string, code: string, type: OtpType): Promise<void> {
+  const subject = type === 'email_verification'
+    ? 'Verify your GrowthAuditor account'
+    : 'Your GrowthAuditor login code';
+
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    logger.error('RESEND_API_KEY is not set — cannot send OTP email', { email, type });
+    return;
+  }
+
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: 'GrowthAuditor <onboarding@resend.dev>',
+        to: [email],
+        subject,
+        html: `
+          <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+            <h2 style="color: #1e293b;">${subject}</h2>
+            <p style="color: #475569;">Enter this code to continue:</p>
+            <div style="font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #4f46e5; margin: 20px 0;">
+              ${code}
+            </div>
+            <p style="color: #94a3b8; font-size: 13px;">This code expires in ${config.otp.expiryMinutes} minutes.</p>
+          </div>
+        `,
+      }),
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      logger.error('OTP email send failed', { status: response.status, body: errBody, email, type });
+      return;
+    }
+
+    logger.info('OTP email sent successfully', { email, type });
+  } catch (err) {
+    logger.error('OTP email request threw an error', {
+      error: err instanceof Error ? err.message : String(err),
+      email,
+      type,
+    });
+  }
+}
+
+export async function createAndSendOtp(userId: string, email: string, type: OtpType): Promise<void> {
+  const db = getAdminClient();
+
+  await ensureUserProfileExists(userId, email);
+
+  const code = generateOtp();
+  const hashedCode = hashOtp(code);
+  const expiresAt = new Date(Date.now() + config.otp.expiryMinutes * 60 * 1000).toISOString();
+
+  await db.from('otp_codes').update({ used: true }).eq('email', email).eq('type', type).eq('used', false);
+
+  const { error } = await db.from('otp_codes').insert({
+    user_id: userId,
+    email,
+    code: hashedCode,
+    type,
+    expires_at: expiresAt,
+  });
+
+  if (error) {
+    logger.error('Failed to store OTP in database', { error: error.message, userId, type });
+    throw new Error('Failed to generate verification code. Please try again.');
+  }
+
+  // Fire-and-forget — never let email delivery block signup
+  sendOtpEmail(email, code, type).catch(() => { /* already logged inside */ });
+
+  logger.info('OTP created', { userId, type, email });
+}
+
 /**
- * Verifies the 6-digit code the user received by email.
- * On success, returns a full session — the user is now logged in.
+ * Verifies the code and marks the user's email as verified.
+ * Does NOT return a session — the frontend redirects to /login afterward,
+ * where signInWithPassword handles authentication normally.
  */
 export async function verifyOtpCode(
   email: string,
-  token: string
-): Promise<{ session: { access_token: string; refresh_token: string }; user: { id: string; email: string; created_at: string } }> {
-  const supabase = getAnonClient();
-  const { data, error } = await supabase.auth.verifyOtp({
-    email,
-    token,
-    type: 'email',
-  });
+  code: string,
+  type: OtpType
+): Promise<{ valid: boolean; reason?: string }> {
+  const db = getAdminClient();
+  const hashedCode = hashOtp(code);
+  const now = new Date().toISOString();
 
-  if (error || !data.session || !data.user) {
-    throw new Error(error?.message || 'Invalid or expired code');
+  const { data: otpRow, error } = await db
+    .from('otp_codes')
+    .select('*')
+    .eq('email', email)
+    .eq('type', type)
+    .eq('used', false)
+    .eq('code', hashedCode)
+    .gt('expires_at', now)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error || !otpRow) {
+    const { data: anyOtp } = await db
+      .from('otp_codes')
+      .select('expires_at, used')
+      .eq('email', email)
+      .eq('type', type)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!anyOtp) {
+      return { valid: false, reason: 'No verification code found. Please request a new one.' };
+    }
+    if (anyOtp.used) {
+      return { valid: false, reason: 'This code has already been used.' };
+    }
+    if (new Date(anyOtp.expires_at) < new Date()) {
+      return { valid: false, reason: 'Code has expired. Please request a new one.' };
+    }
+    return { valid: false, reason: 'Invalid code. Please check and try again.' };
   }
 
-  return {
-    session: {
-      access_token: data.session.access_token,
-      refresh_token: data.session.refresh_token,
-    },
-    user: {
-      id: data.user.id,
-      email: data.user.email || email,
-      created_at: data.user.created_at,
-    },
-  };
+  await db.from('otp_codes').update({ used: true }).eq('id', otpRow.id);
+
+  if (type === 'email_verification') {
+    await db.from('users').update({ email_verified: true }).eq('id', otpRow.user_id);
+  }
+
+  logger.info('OTP verified successfully', { email, type });
+  return { valid: true };
+}
+
+export async function checkOtpRequired(userId: string): Promise<boolean> {
+  const db = getAdminClient();
+  const { data } = await db.from('users').select('two_fa_enabled').eq('id', userId).single();
+  return data?.two_fa_enabled === true;
 }
