@@ -4,14 +4,11 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// OTP Service — decisive final version
-// - Custom-generated code, sent via Resend HTTP API directly (bypasses
-//   Supabase's signInWithOtp entirely, which has been intermittently
-//   returning 504 gateway timeouts).
-// - Verification does NOT try to mint a Supabase session. It just marks
-//   the user's email as verified. The user then logs in normally via
-//   signInWithPassword, which has been confirmed working throughout.
-// - Looked up by email (not user_id) to match the simplified frontend contract.
+// OTP Service — EmailJS version
+// Backend ONLY generates and stores the code. It does NOT send any email.
+// The frontend calls EmailJS directly (client-side) using the code returned
+// in the API response, right after signup/resend. This avoids all backend
+// email infrastructure entirely — no Resend, no SMTP, no domain, no IPv6 issues.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type OtpType = 'email_verification' | 'login_2fa';
@@ -39,58 +36,12 @@ async function ensureUserProfileExists(userId: string, email: string): Promise<v
   }
 }
 
-async function sendOtpEmail(email: string, code: string, type: OtpType): Promise<void> {
-  const subject = type === 'email_verification'
-    ? 'Verify your GrowthAuditor account'
-    : 'Your GrowthAuditor login code';
-
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    logger.error('RESEND_API_KEY is not set — cannot send OTP email', { email, type });
-    return;
-  }
-
-  try {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: 'GrowthAuditor <onboarding@resend.dev>',
-        to: [email],
-        subject,
-        html: `
-          <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
-            <h2 style="color: #1e293b;">${subject}</h2>
-            <p style="color: #475569;">Enter this code to continue:</p>
-            <div style="font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #4f46e5; margin: 20px 0;">
-              ${code}
-            </div>
-            <p style="color: #94a3b8; font-size: 13px;">This code expires in ${config.otp.expiryMinutes} minutes.</p>
-          </div>
-        `,
-      }),
-    });
-
-    if (!response.ok) {
-      const errBody = await response.text();
-      logger.error('OTP email send failed', { status: response.status, body: errBody, email, type });
-      return;
-    }
-
-    logger.info('OTP email sent successfully', { email, type });
-  } catch (err) {
-    logger.error('OTP email request threw an error', {
-      error: err instanceof Error ? err.message : String(err),
-      email,
-      type,
-    });
-  }
-}
-
-export async function createAndSendOtp(userId: string, email: string, type: OtpType): Promise<void> {
+/**
+ * Generates and stores a new OTP. Returns the PLAIN code so the caller
+ * (the API response) can hand it to the frontend, which sends it via EmailJS.
+ * The plain code is never logged or persisted anywhere except hashed in the DB.
+ */
+export async function createOtp(userId: string, email: string, type: OtpType): Promise<string> {
   const db = getAdminClient();
 
   await ensureUserProfileExists(userId, email);
@@ -114,17 +65,10 @@ export async function createAndSendOtp(userId: string, email: string, type: OtpT
     throw new Error('Failed to generate verification code. Please try again.');
   }
 
-  // Fire-and-forget — never let email delivery block signup
-  sendOtpEmail(email, code, type).catch(() => { /* already logged inside */ });
-
-  logger.info('OTP created', { userId, type, email });
+  logger.info('OTP created (email send delegated to frontend)', { userId, type, email });
+  return code;
 }
 
-/**
- * Verifies the code and marks the user's email as verified.
- * Does NOT return a session — the frontend redirects to /login afterward,
- * where signInWithPassword handles authentication normally.
- */
 export async function verifyOtpCode(
   email: string,
   code: string,

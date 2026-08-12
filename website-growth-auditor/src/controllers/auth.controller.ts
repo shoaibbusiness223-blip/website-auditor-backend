@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { getAnonClient, getAdminClient } from '../db/supabase';
-import { createAndSendOtp, verifyOtpCode } from '../services/otp.service';
+import { createOtp, verifyOtpCode } from '../services/otp.service';
 import { sendSuccess, sendError } from '../utils/response';
 import { logError } from '../utils/logger';
 
@@ -23,18 +23,25 @@ export async function handleSignup(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // Fire-and-forget — signup succeeds regardless of email delivery
-    createAndSendOtp(data.user.id, email, 'email_verification').catch((otpErr) => {
+    let otpCode: string | null = null;
+    try {
+      otpCode = await createOtp(data.user.id, email, 'email_verification');
+    } catch (otpErr) {
       logError(otpErr instanceof Error ? otpErr : new Error(String(otpErr)), {
-        handler: 'handleSignup:sendOtp',
+        handler: 'handleSignup:createOtp',
         email,
       });
-    });
+      // Signup still succeeds even if OTP generation fails —
+      // user can hit "resend" on the verify screen.
+    }
 
     sendSuccess(res, {
       user: { id: data.user.id, email: data.user.email },
       requiresEmailVerification: true,
-    }, 201, 'Account created. Check your email for a 6-digit code.');
+      // Frontend uses this to trigger the EmailJS send. Never logged, never
+      // stored anywhere except hashed in the DB.
+      otpCode,
+    }, 201, 'Account created.');
   } catch (err) {
     const message = err instanceof Error && err.message ? err.message : 'Signup failed. Please try again.';
     logError(err instanceof Error ? err : new Error(String(err)), { handler: 'handleSignup' });
@@ -43,8 +50,6 @@ export async function handleSignup(req: Request, res: Response): Promise<void> {
 }
 
 // ── POST /api/auth/verify-email ───────────────────────────────────────────────
-// Body: { email, code }. Marks email verified — does NOT return a session.
-// Frontend redirects to /login afterward.
 export async function handleVerifyEmail(req: Request, res: Response): Promise<void> {
   try {
     const { email, code } = req.body as { email: string; code: string };
@@ -64,7 +69,7 @@ export async function handleVerifyEmail(req: Request, res: Response): Promise<vo
 }
 
 // ── POST /api/auth/resend-otp ─────────────────────────────────────────────────
-// Body: { email }. Looks up the pending user by email to resend.
+// Returns a fresh OTP code for the frontend to send via EmailJS again.
 export async function handleResendOtp(req: Request, res: Response): Promise<void> {
   try {
     const { email } = req.body as { email: string };
@@ -77,11 +82,11 @@ export async function handleResendOtp(req: Request, res: Response): Promise<void
       return;
     }
 
-    await createAndSendOtp(userRow.id, email, 'email_verification');
-    sendSuccess(res, { sent: true }, 200, 'Code sent. Check your email.');
+    const otpCode = await createOtp(userRow.id, email, 'email_verification');
+    sendSuccess(res, { otpCode }, 200, 'New code generated.');
   } catch (err) {
     logError(err instanceof Error ? err : new Error(String(err)), { handler: 'handleResendOtp' });
-    sendError(res, err instanceof Error ? err.message : 'Failed to resend code', 500);
+    sendError(res, err instanceof Error ? err.message : 'Failed to generate code', 500);
   }
 }
 
