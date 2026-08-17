@@ -7,6 +7,7 @@ import { requestLogger } from './middleware/requestLogger';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import authRoutes from './routes/auth.routes';
 import auditRoutes from './routes/audit.routes';
+import paymentRoutes from './routes/payment.routes';
 
 const app = express();
 
@@ -32,19 +33,19 @@ app.use(helmet({
 // ─── CORS ──────────────────────────────────────────────────────────────────────
 app.use(cors({
   origin: config.isProd
-    ? [config.security.corsOrigin]  // Strict in production
-    : true,                          // Allow all in dev
+    ? [config.security.corsOrigin]
+    : true,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
-  maxAge: 86400, // Cache preflight for 24h
+  maxAge: 86400,
 }));
 
 // ─── Body Parsing + Size Limits ────────────────────────────────────────────────
-app.use(express.json({ limit: '10kb' }));     // Reject huge JSON bodies
+app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: false, limit: '10kb' }));
 
-// ─── Trust proxy (needed for rate limiting behind Vercel/Nginx) ────────────────
+// ─── Trust proxy ────────────────────────────────────────────────────────────────
 app.set('trust proxy', 1);
 
 // ─── Global Rate Limiting ──────────────────────────────────────────────────────
@@ -67,8 +68,6 @@ app.get('/health', (_req, res) => {
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api/audit', auditRoutes);
-
-import paymentRoutes from './routes/payment.routes';
 app.use('/api/payment', paymentRoutes);
 
 // ─── Error Handlers ───────────────────────────────────────────────────────────
