@@ -41,11 +41,10 @@ export const config = {
     clientId: process.env.PAYPAL_CLIENT_ID || '',
     clientSecret: process.env.PAYPAL_CLIENT_SECRET || '',
     webhookId: process.env.PAYPAL_WEBHOOK_ID || '',
-    baseUrl: process.env.NODE_ENV === 'production'
+    baseUrl: process.env.PAYPAL_MODE === 'live'
       ? 'https://api-m.paypal.com'
       : 'https://api-m.sandbox.paypal.com',
   },
-
   // ── Plan pricing ───────────────────────────────────────────────────────────
   plans: {
     pro: {
