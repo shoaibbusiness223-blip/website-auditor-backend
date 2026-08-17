@@ -35,21 +35,7 @@ export const config = {
     model: 'llama-3.3-70b-versatile',
     maxTokens: 2048,
   },
-
-  // ── Email (Supabase handles OTP email sending via SMTP) ────────────────────
-  // Configure SMTP in Supabase Dashboard → Authentication → Email Templates
-  otp: {
-    expiryMinutes: 10,
-    maxAttempts: 3,
-  },
-
-  // ── Razorpay (Indian users) ────────────────────────────────────────────────
-  razorpay: {
-    keyId: process.env.RAZORPAY_KEY_ID || '',
-    keySecret: process.env.RAZORPAY_KEY_SECRET || '',
-    webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || '',
-  },
-
+  
   // ── PayPal (International users) ──────────────────────────────────────────
   paypal: {
     clientId: process.env.PAYPAL_CLIENT_ID || '',
@@ -64,12 +50,10 @@ export const config = {
   plans: {
     pro: {
       priceUsdCents: 1900,       // $19.00
-      priceInrPaise: 149900,     // ₹1,499
       auditsPerMonth: 50,
     },
     agency: {
       priceUsdCents: 7900,       // $79.00
-      priceInrPaise: 649900,     // ₹6,499
       auditsPerMonth: 999,
     },
   },
