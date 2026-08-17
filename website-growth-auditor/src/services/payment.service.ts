@@ -32,7 +32,7 @@ export async function createPayPalOrder(
         custom_id: `${userId}:${plan}`,
       }],
       application_context: {
-        return_url: `${config.security.corsOrigin}/payment/success`,
+        return_url: `${config.security.corsOrigin}/payments/success`,
         cancel_url: `${config.security.corsOrigin}/payment/cancel`,
         brand_name: 'GrowthAuditor',
         user_action: 'PAY_NOW',
