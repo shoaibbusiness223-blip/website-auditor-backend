@@ -100,6 +100,21 @@ export interface AuthUser {
   created_at: string;
 }
 
+export type OtpPurpose = 'signup' | 'login' | 'reset_password';
+
+export interface OtpCodeRow {
+  id: string;
+  email: string;
+  purpose: OtpPurpose;
+  code_hash: string;
+  attempts: number;
+  max_attempts: number;
+  expires_at: string;
+  consumed_at: string | null;
+  last_sent_at: string;
+  created_at: string;
+}
+
 export interface JwtPayload {
   sub: string;
   email: string;

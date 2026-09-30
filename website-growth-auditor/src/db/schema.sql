@@ -107,7 +107,28 @@ CREATE POLICY "Users can view own audits"
   USING (auth.uid() = user_id);
 
 CREATE POLICY "Users can insert own audits"
-  ON public.audits FOR INSERT
+  ON p-- ============================================================
+-- OTP codes — signup verification, login 2FA, password reset
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS public.otp_codes (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email         TEXT NOT NULL,
+  purpose       TEXT NOT NULL CHECK (purpose IN ('signup', 'login', 'reset_password')),
+  code_hash     TEXT NOT NULL,
+  attempts      SMALLINT NOT NULL DEFAULT 0,
+  max_attempts  SMALLINT NOT NULL DEFAULT 5,
+  expires_at    TIMESTAMPTZ NOT NULL,
+  consumed_at   TIMESTAMPTZ,
+  last_sent_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS otp_codes_email_purpose_idx ON public.otp_codes(email, purpose);
+
+ALTER TABLE public.otp_codes ENABLE ROW LEVEL SECURITY;ublic.audits FOR INSERT
   WITH CHECK (auth.uid() = user_id);
+
+
 
 -- Note: Updates/deletes to audits go through service role only (backend)

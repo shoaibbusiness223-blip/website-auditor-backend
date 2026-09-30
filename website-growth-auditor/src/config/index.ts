@@ -64,6 +64,19 @@ export const config = {
     auditRateLimitMax: parseInt(process.env.AUDIT_RATE_LIMIT_MAX || '10', 10),
   },
 
+  otp: {
+    ttlMinutes: parseInt(process.env.OTP_TTL_MINUTES || '10', 10),
+    maxAttempts: parseInt(process.env.OTP_MAX_ATTEMPTS || '5', 10),
+    resendCooldownSeconds: parseInt(process.env.OTP_RESEND_COOLDOWN_SECONDS || '60', 10),
+    ticketSecret: requireEnv('OTP_TICKET_SECRET'),
+    ticketTtlMinutes: parseInt(process.env.OTP_TICKET_TTL_MINUTES || '10', 10),
+  },
+
+  email: {
+    resendApiKey: requireEnv('RESEND_API_KEY'),
+    fromAddress: process.env.EMAIL_FROM || 'Website Growth Auditor <onboarding@yourdomain.com>',
+  },
+
   scraper: {
     timeoutMs: parseInt(process.env.FETCH_TIMEOUT_MS || '10000', 10),
     maxResponseSizeBytes: parseInt(process.env.MAX_RESPONSE_SIZE_BYTES || '5242880', 10),
