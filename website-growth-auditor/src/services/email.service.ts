@@ -41,6 +41,8 @@ export async function sendOtpEmail(email: string, code: string, purpose: OtpPurp
       }
     );
   } catch (err) {
+    const details = (err as { response?: { data?: unknown } })?.response?.data;
+    console.error('Resend API rejected the request:', JSON.stringify(details));
     logError(err instanceof Error ? err : new Error(String(err)), { service: 'email.service', purpose });
     throw new Error('Failed to send verification email. Please try again shortly.');
   }
