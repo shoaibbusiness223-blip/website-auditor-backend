@@ -54,7 +54,10 @@ export async function requestOtp(email: string, purpose: OtpPurpose): Promise<vo
     expires_at: expiresAt,
   });
 
-  if (error) throw new Error('Could not create verification code');
+  if (error) {
+    console.error('otp_codes insert failed:', error);
+    throw new Error('Could not create verification code');
+  }
 
   await sendOtpEmail(normalizedEmail, code, purpose);
 }
