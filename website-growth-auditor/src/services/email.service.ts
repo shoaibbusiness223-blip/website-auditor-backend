@@ -1,4 +1,4 @@
-import axios from 'axios';
+import nodemailer from 'nodemailer';
 import { config } from '../config';
 import { logError } from '../utils/logger';
 import { OtpPurpose } from '../types';
@@ -15,6 +15,14 @@ const INTROS: Record<OtpPurpose, string> = {
   reset_password: 'Use this code to reset your password.',
 };
 
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: config.email.gmailUser,
+    pass: config.email.gmailAppPassword,
+  },
+});
+
 export async function sendOtpEmail(email: string, code: string, purpose: OtpPurpose): Promise<void> {
   const subject = SUBJECTS[purpose];
   const html = `
@@ -29,20 +37,13 @@ export async function sendOtpEmail(email: string, code: string, purpose: OtpPurp
   `;
 
   try {
-    await axios.post(
-      'https://api.resend.com/emails',
-      { from: config.email.fromAddress, to: [email], subject, html },
-      {
-        headers: {
-          Authorization: `Bearer ${config.email.resendApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 10000,
-      }
-    );
+    await transporter.sendMail({
+      from: `GrowthAuditor <${config.email.gmailUser}>`,
+      to: email,
+      subject,
+      html,
+    });
   } catch (err) {
-    const details = (err as { response?: { data?: unknown } })?.response?.data;
-    console.error('Resend API rejected the request:', JSON.stringify(details));
     logError(err instanceof Error ? err : new Error(String(err)), { service: 'email.service', purpose });
     throw new Error('Failed to send verification email. Please try again shortly.');
   }

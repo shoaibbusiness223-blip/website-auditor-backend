@@ -73,8 +73,8 @@ export const config = {
   },
 
   email: {
-    resendApiKey: requireEnv('RESEND_API_KEY'),
-    fromAddress: process.env.EMAIL_FROM || 'Website Growth Auditor <onboarding@yourdomain.com>',
+    gmailUser: requireEnv('GMAIL_USER'),
+    gmailAppPassword: requireEnv('GMAIL_APP_PASSWORD'),
   },
 
   scraper: {
