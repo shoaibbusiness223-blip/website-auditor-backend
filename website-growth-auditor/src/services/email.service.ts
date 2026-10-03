@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+import * as nodemailer from 'nodemailer';
 import { config } from '../config';
 import { logError } from '../utils/logger';
 import { OtpPurpose } from '../types';
@@ -15,7 +15,16 @@ const INTROS: Record<OtpPurpose, string> = {
   reset_password: 'Use this code to reset your password.',
 };
 
-
+const transporter = nodemailer.createTransport({
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true,
+  family: 4, // force IPv4 — Render's free network can't reach Gmail over IPv6
+  auth: {
+    user: config.email.gmailUser,
+    pass: config.email.gmailAppPassword,
+  },
+} as nodemailer.TransportOptions);
 
 export async function sendOtpEmail(email: string, code: string, purpose: OtpPurpose): Promise<void> {
   const subject = SUBJECTS[purpose];
