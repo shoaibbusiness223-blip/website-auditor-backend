@@ -15,13 +15,7 @@ const INTROS: Record<OtpPurpose, string> = {
   reset_password: 'Use this code to reset your password.',
 };
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: config.email.gmailUser,
-    pass: config.email.gmailAppPassword,
-  },
-});
+
 
 export async function sendOtpEmail(email: string, code: string, purpose: OtpPurpose): Promise<void> {
   const subject = SUBJECTS[purpose];
