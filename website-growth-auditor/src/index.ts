@@ -1,6 +1,3 @@
-import dns from 'dns';
-dns.setDefaultResultOrder('ipv4first');
-
 import app from './app';
 import { config } from './config';
 import { logger } from './utils/logger';

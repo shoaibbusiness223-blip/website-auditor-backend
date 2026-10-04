@@ -72,9 +72,9 @@ export const config = {
     ticketTtlMinutes: parseInt(process.env.OTP_TICKET_TTL_MINUTES || '10', 10),
   },
 
-  email: {
-    gmailUser: requireEnv('GMAIL_USER'),
-    gmailAppPassword: requireEnv('GMAIL_APP_PASSWORD'),
+   email: {
+    brevoApiKey: requireEnv('BREVO_API_KEY'),
+    fromAddress: requireEnv('EMAIL_FROM'),
   },
 
   scraper: {

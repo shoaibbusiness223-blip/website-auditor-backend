@@ -1,4 +1,4 @@
-import * as nodemailer from 'nodemailer';
+import axios from 'axios';
 import { config } from '../config';
 import { logError } from '../utils/logger';
 import { OtpPurpose } from '../types';
@@ -15,19 +15,6 @@ const INTROS: Record<OtpPurpose, string> = {
   reset_password: 'Use this code to reset your password.',
 };
 
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false, // port 587 uses STARTTLS, not a direct TLS connection
-  requireTLS: true,
-  family: 4, // force IPv4 — Render's free network can't reach Gmail over IPv6
-  connectionTimeout: 15000,
-  auth: {
-    user: config.email.gmailUser,
-    pass: config.email.gmailAppPassword,
-  },
-} as nodemailer.TransportOptions);
-
 export async function sendOtpEmail(email: string, code: string, purpose: OtpPurpose): Promise<void> {
   const subject = SUBJECTS[purpose];
   const html = `
@@ -42,13 +29,26 @@ export async function sendOtpEmail(email: string, code: string, purpose: OtpPurp
   `;
 
   try {
-    await transporter.sendMail({
-      from: `GrowthAuditor <${config.email.gmailUser}>`,
-      to: email,
-      subject,
-      html,
-    });
+    await axios.post(
+      'https://api.brevo.com/v3/smtp/email',
+      {
+        sender: { email: config.email.fromAddress, name: 'GrowthAuditor' },
+        to: [{ email }],
+        subject,
+        htmlContent: html,
+      },
+      {
+        headers: {
+          'api-key': config.email.brevoApiKey,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        timeout: 10000,
+      }
+    );
   } catch (err) {
+    const details = (err as { response?: { data?: unknown } })?.response?.data;
+    console.error('Brevo API rejected the request:', JSON.stringify(details));
     logError(err instanceof Error ? err : new Error(String(err)), { service: 'email.service', purpose });
     throw new Error('Failed to send verification email. Please try again shortly.');
   }
