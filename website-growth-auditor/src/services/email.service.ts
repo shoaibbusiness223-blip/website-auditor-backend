@@ -17,9 +17,11 @@ const INTROS: Record<OtpPurpose, string> = {
 
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
-  port: 465,
-  secure: true,
+  port: 587,
+  secure: false, // port 587 uses STARTTLS, not a direct TLS connection
+  requireTLS: true,
   family: 4, // force IPv4 — Render's free network can't reach Gmail over IPv6
+  connectionTimeout: 15000,
   auth: {
     user: config.email.gmailUser,
     pass: config.email.gmailAppPassword,
