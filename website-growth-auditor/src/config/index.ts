@@ -72,6 +72,11 @@ export const config = {
     ticketTtlMinutes: parseInt(process.env.OTP_TICKET_TTL_MINUTES || '10', 10),
   },
 
+  admin: {
+    emails: (process.env.ADMIN_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean),
+  },
+  
+
    email: {
     brevoApiKey: requireEnv('BREVO_API_KEY'),
     fromAddress: requireEnv('EMAIL_FROM'),
