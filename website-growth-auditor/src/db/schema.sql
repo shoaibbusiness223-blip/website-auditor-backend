@@ -129,6 +129,27 @@ CREATE INDEX IF NOT EXISTS otp_codes_email_purpose_idx ON public.otp_codes(email
 ALTER TABLE public.otp_codes ENABLE ROW LEVEL SECURITY;ublic.audits FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
+-- ============================================================
+-- Activity log — every signup, login, and logout, with source
+-- ============================================================
 
+CREATE TABLE IF NOT EXISTS public.activity_events (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id     UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  event_type  TEXT NOT NULL CHECK (event_type IN ('signup', 'login', 'logout')),
+  metadata    JSONB,
+  ip_address  TEXT,
+  user_agent  TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS activity_events_user_id_idx ON public.activity_events(user_id);
+CREATE INDEX IF NOT EXISTS activity_events_created_at_idx ON public.activity_events(created_at DESC);
+
+ALTER TABLE public.activity_events ENABLE ROW LEVEL SECURITY;
+
+-- Where each user came from, captured once at signup
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS signup_source TEXT;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS signup_user_agent TEXT;
 
 -- Note: Updates/deletes to audits go through service role only (backend)

@@ -1,5 +1,12 @@
 import { Request, Response } from 'express';
-import { getAdminStats, getUsersList, getRecentAudits } from '../services/admin.service';
+import {
+  getAdminStats,
+  getUsersList,
+  getRecentAudits,
+  getUserDetail,
+  getTopAuditedUrls,
+  getSignupSources,
+} from '../services/admin.service';
 import { sendSuccess, sendError } from '../utils/response';
 import { logError } from '../utils/logger';
 
@@ -33,5 +40,35 @@ export async function handleGetAudits(req: Request, res: Response): Promise<void
   } catch (err) {
     logError(err as Error, { handler: 'handleGetAudits' });
     sendError(res, 'Failed to load audits', 500);
+  }
+}
+
+export async function handleGetUserDetail(req: Request, res: Response): Promise<void> {
+  try {
+    const detail = await getUserDetail(req.params.id);
+    sendSuccess(res, detail);
+  } catch (err) {
+    logError(err as Error, { handler: 'handleGetUserDetail' });
+    sendError(res, 'Failed to load user detail', 500);
+  }
+}
+
+export async function handleGetTopUrls(_req: Request, res: Response): Promise<void> {
+  try {
+    const urls = await getTopAuditedUrls(20);
+    sendSuccess(res, urls);
+  } catch (err) {
+    logError(err as Error, { handler: 'handleGetTopUrls' });
+    sendError(res, 'Failed to load top URLs', 500);
+  }
+}
+
+export async function handleGetSignupSources(_req: Request, res: Response): Promise<void> {
+  try {
+    const sources = await getSignupSources();
+    sendSuccess(res, sources);
+  } catch (err) {
+    logError(err as Error, { handler: 'handleGetSignupSources' });
+    sendError(res, 'Failed to load signup sources', 500);
   }
 }

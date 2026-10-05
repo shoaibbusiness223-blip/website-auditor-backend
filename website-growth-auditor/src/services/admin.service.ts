@@ -77,3 +77,56 @@ export async function getRecentAudits(limit: number) {
   if (error) throw new Error(error.message);
   return data || [];
 }
+
+export async function getUserDetail(userId: string) {
+  const db = getAdminClient();
+
+  const [{ data: profile }, { data: audits }, { data: events }] = await Promise.all([
+    db.from('users').select('*').eq('id', userId).single(),
+    db.from('audits')
+      .select('id, website_url, status, overall_score, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false }),
+    db.from('activity_events')
+      .select('event_type, metadata, ip_address, user_agent, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(100),
+  ]);
+
+  return { profile, audits: audits || [], events: events || [] };
+}
+
+export async function getTopAuditedUrls(limit: number) {
+  const db = getAdminClient();
+  const { data } = await db
+    .from('audits')
+    .select('website_url')
+    .order('created_at', { ascending: false })
+    .limit(500);
+
+  const counts: Record<string, number> = {};
+  for (const row of data || []) {
+    counts[row.website_url] = (counts[row.website_url] || 0) + 1;
+  }
+
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([url, count]) => ({ url, count }));
+}
+
+export async function getSignupSources() {
+  const db = getAdminClient();
+  const { data } = await db.from('users').select('signup_source');
+
+  const counts: Record<string, number> = {};
+  for (const row of data || []) {
+    const source = row.signup_source || 'direct';
+    counts[source] = (counts[source] || 0) + 1;
+  }
+
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([source, count]) => ({ source, count }));
+}

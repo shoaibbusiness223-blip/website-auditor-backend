@@ -1,13 +1,14 @@
 import { Request, Response } from 'express';
 import { getAnonClient, getAdminClient } from '../db/supabase';
 import { assertOtpTicket, requestOtp } from '../services/otp.service';
+import { logEvent } from '../services/activity.service';
 import { sendSuccess, sendError } from '../utils/response';
 import { logError } from '../utils/logger';
 
 export async function handleSignup(req: Request, res: Response): Promise<void> {
   try {
-    const { email, password, full_name, otp_ticket } = req.body as {
-      email: string; password: string; full_name?: string; otp_ticket: string;
+    const { email, password, full_name, otp_ticket, source } = req.body as {
+      email: string; password: string; full_name?: string; otp_ticket: string; source?: string;
     };
 
     assertOtpTicket(otp_ticket, email, 'signup');
@@ -37,6 +38,14 @@ export async function handleSignup(req: Request, res: Response): Promise<void> {
       sendError(res, error?.message || 'Signup failed', 400, 'SIGNUP_ERROR');
       return;
     }
+
+        // Save where this user came from, and log the signup event
+        await db
+        .from('users')
+        .update({ signup_source: source || 'direct', signup_user_agent: req.headers['user-agent'] || null })
+        .eq('id', data.user.id);
+  
+      await logEvent(req, 'signup', data.user.id, { source: source || 'direct' });
 
     const anon = getAnonClient();
     const { data: signInData, error: signInError } = await anon.auth.signInWithPassword({
@@ -103,10 +112,13 @@ export async function handleLoginComplete(req: Request, res: Response): Promise<
       return;
     }
 
+    await logEvent(req, 'login', data.user.id);
+
     sendSuccess(res, {
       user: { id: data.user.id, email: data.user.email, created_at: data.user.created_at },
       session: data.session,
     }, 200);
+
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Login failed';
     logError(err instanceof Error ? err : new Error(String(err)), { handler: 'handleLoginComplete' });
@@ -147,6 +159,16 @@ export async function handleResetPassword(req: Request, res: Response): Promise<
     const message = err instanceof Error ? err.message : 'Password reset failed';
     logError(err instanceof Error ? err : new Error(String(err)), { handler: 'handleResetPassword' });
     sendError(res, message, 400, 'RESET_ERROR');
+  }
+}
+
+export async function handleLogout(req: Request, res: Response): Promise<void> {
+  try {
+    await logEvent(req, 'logout', req.user!.id);
+    sendSuccess(res, { loggedOut: true });
+  } catch (err) {
+    logError(err as Error, { handler: 'handleLogout' });
+    sendError(res, 'Logout failed', 500);
   }
 }
 

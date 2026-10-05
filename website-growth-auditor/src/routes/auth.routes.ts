@@ -5,6 +5,7 @@ import {
   handleLoginPassword,
   handleLoginComplete,
   handleResetPassword,
+  handleLogout,
   handleMe,
 } from '../controllers/auth.controller';
 import { handleSendOtp, handleVerifyOtp } from '../controllers/otp.controller';
@@ -37,5 +38,6 @@ router.post('/login/complete', validateLoginComplete, handleLoginComplete);
 router.post('/reset-password', validateResetPassword, handleResetPassword);
 
 router.get('/me', requireAuth, handleMe);
+router.post('/logout', requireAuth, handleLogout);
 
 export default router;

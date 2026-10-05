@@ -1,5 +1,12 @@
 import { Router } from 'express';
-import { handleGetStats, handleGetUsers, handleGetAudits } from '../controllers/admin.controller';
+import {
+    handleGetStats,
+    handleGetUsers,
+    handleGetAudits,
+    handleGetUserDetail,
+    handleGetTopUrls,
+    handleGetSignupSources,
+  } from '../controllers/admin.controller';
 import { requireAuth } from '../middleware/auth';
 import { requireAdmin } from '../middleware/requireAdmin';
 
@@ -11,5 +18,8 @@ router.use(requireAuth, requireAdmin);
 router.get('/stats', handleGetStats);
 router.get('/users', handleGetUsers);
 router.get('/audits', handleGetAudits);
+router.get('/users/:id', handleGetUserDetail);
+router.get('/top-urls', handleGetTopUrls);
+router.get('/signup-sources', handleGetSignupSources);
 
 export default router;
